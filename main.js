@@ -21,6 +21,7 @@ const { Client,
   EmbedBuilder,
   GuildTextThreadManager, 
   ActionRow} = require('discord.js');
+const { start } = require('repl');
 const client = new Client({ 
   intents: [
     GatewayIntentBits.Guilds,            // To receive information about the guilds (servers)
@@ -32,6 +33,61 @@ const client = new Client({
 });
 
 client.setMaxListeners(100);
+
+//game manager.
+const games = {};
+const gameIdCounter = 0;
+
+
+class GameManager {
+  constructor() {
+    this.games = {};
+    this.gameIdCounter = 0;
+  }
+  generateGameId() {
+    return `${this.gameIdCounter++}`;
+  }
+  createGame(gameType, users) {
+    const gameId = this.generateGameId();
+    const newGame = {
+      game_id: gameId,
+      game_status: 'ongoing',
+      game_type: gameType,
+      game_users: users || [],
+    };
+    this.games[gameId] = newGame;
+
+    return gameId;
+  }
+
+  addUserToGame(gameId, user) {
+    if (this.games[gameId]) {
+      if (!Array.isArray(this.games[gameId].game_users)) {
+        this.games[gameId].game_users = []; // Initialize as an empty array if not an array
+      }
+      this.games[gameId].game_users.push(user);
+      console.log(`User ${user} added to game ${gameId}`);
+    } else {
+      console.log(`Game ${gameId} not found. User ${user} cannot be added.`);
+    }
+  }
+  
+
+  endGame(gameId) {
+    if (this.games[gameId]) {
+      this.games[gameId].game_status = 'finished';
+    }
+  }
+
+  getGame(gameId) {
+    return this.games[gameId];
+  }
+
+  // pause game method.
+  pauseAll() {
+
+  }
+}//end GameManager class.
 
 //roles | starting with Admin role.
 client.on("ready", () => {
@@ -552,12 +608,12 @@ client.on("interactionCreate", async (interaction) => {
       .setLabel('Play House')
       .setCustomId('play_house')
       .setStyle(ButtonStyle.Primary);
-  const blackjackButton = new ButtonBuilder()
-    .setLabel('Blackjack')
-    .setCustomId('blackjack_button')
+  const coinflipButton = new ButtonBuilder()
+    .setLabel('Coinflip')
+    .setCustomId('coinflip_button')
     .setStyle(ButtonStyle.Primary);
 
-  const row = new ActionRowBuilder().addComponents(houseButton, dicingButton, deathmatchButton);
+  const row = new ActionRowBuilder().addComponents(houseButton, dicingButton, deathmatchButton, coinflipButton);
   //respond with the buttons.
   await interaction.reply({ content: '', components: [row] });
   }
@@ -607,6 +663,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       // bet amount is valid.
       console.log(`User enter a valid bet amount: ${betAmount}.`);
       playHouseGame(userId, betAmount, interaction);
+
+      //create new game using GameManager object.
+      gameManager.createGame('House', [userId]);
+      console.log(gameManager);
     } else {
       //invalid bet amount.
       await interaction.reply('Please enter a valid positive number.')
@@ -1444,14 +1504,6 @@ function playHouseGame(userId, betAmount, interaction) {
   }
 }// End of playHouseGame().
 
-//start of deathmatch.
-function playDeathmatch(userId, betAmount, query) {
-  // Generating a random number between 0 and 1.
-  const randomBytes = crypto.randomBytes(1);
-  const randomValue = randomBytes[0] / 255.0;
-
-
-}
 
 //handling logic and other attempt at deathmatch down here | starting with !dm command.
 client.on('messageCreate', async (message) => {
@@ -1486,47 +1538,45 @@ client.on('messageCreate', async (message) => {
 const userBetAmounts = new Map();
 const userRoles = new Map();
 const pvpMatchPairs = new Map();
-const userInitiations = new Map();
+const userInitiations = [];
+
 // Dealing with interactions from the PVPDMs channel.
 client.on(Events.InteractionCreate, async (interaction) => {
-    if (!interaction.isButton()) return;
+  if (!interaction.isButton()) return;
 
-    if (interaction.customId === 'pvpDMStart' && interaction.isButton()) {
-      const userId = interaction.user.id;
+  if (interaction.customId === 'pvpDMStart' && interaction.isButton()) {
+    const userId = interaction.user.id;
 
-      // Check if the user already set a bet amount.
-      if (userRoles.has(userId)) {
-        await interaction.reply('You have already started a match.');
-        return;
-      }
-      userRoles.set(userId, 'Player 1'); // Mark the initiator as Player 1.
-      console.log(userRoles);
-      // Prompt the user to enter the bet amount.
-      try {
-        const betModal = new ModalBuilder()
-          .setCustomId('betModal')
-          .setTitle('Enter the amount you wish to play with.');
-        const betAmountInput = new TextInputBuilder()
-          .setCustomId('betAmountInput')
-          .setLabel('Deathmatch Amount Input')
-          .setPlaceholder('Enter amount here...')
-          .setRequired(true)
-          .setStyle(TextInputStyle.Short);
-
-        const dmRow = new ActionRowBuilder().addComponents(betAmountInput);
-        betModal.addComponents(dmRow);
-        await interaction.showModal(betModal);
-      } catch (error) {
-        console.error('Error prompting for bet amount:', error);
-      }
+    if (userRoles.has(userId)) {
+      await interaction.reply('You have already started a match.');
+      return;
     }
-})
+    userRoles.set(userId, 'Player 1');
 
-//Handling the Modal submission.
+    try {
+      // Prompt the user to enter the bet amount.
+      const betModal = new ModalBuilder()
+        .setCustomId('betModal')
+        .setTitle('Enter the amount you wish to play with.');
+      const betAmountInput = new TextInputBuilder()
+        .setCustomId('betAmountInput')
+        .setLabel('Deathmatch Amount Input')
+        .setPlaceholder('Enter amount here...')
+        .setRequired(true)
+        .setStyle(TextInputStyle.Short);
+
+      const dmRow = new ActionRowBuilder().addComponents(betAmountInput);
+      betModal.addComponents(dmRow);
+      await interaction.showModal(betModal);
+    } catch (error) {
+      console.error('Error prompting for bet amount:', error);
+    }
+  }
+});
+
+// Handling the Modal submission
 client.on(Events.InteractionCreate, async (interaction) => {
-  console.log(interaction);
   if (interaction.isModalSubmit() && interaction.customId === 'betModal') {
-    console.log('Modal Submission:', interaction);
     try {
       const userId = interaction.user.id;
       const betAmount = parseFloat(interaction.fields.getTextInputValue('betAmountInput'));
@@ -1534,11 +1584,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const userBalance = await queryUserBalance(userId);
 
       if (!isNaN(betAmount) && userBalance >= betAmount) {
-        userInitiations.set(userId, { betAmount }); //Store user 1 and their information.
-        // User has enough balance, proceed with code.
-        userBetAmounts.set(userId, betAmount);
-        //logging the userBetAmounts to my console.
-        console.log(userBetAmounts);
+        userInitiations.push({ userId, betAmount });
+
         const matchEmbed = {
           color: 0x0099FF,
           title: 'PVP Deathmatch Offer',
@@ -1559,30 +1606,47 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await interaction.channel.send({ embeds: [matchEmbed], components: [row] });
       } else {
         await interaction.reply('Insufficient balance. Please enter a valid amount based upon your balance.');
-      } 
+      }
     } catch (error) {
       console.error('Error handling bet amount submission:', error);
     }
   }
-})
+});
 
-// Now handling the user clicking the acceptButton (id).
+//Function to retrieve other userName.
+function otherUserName(interaction, userId) {
+  return interaction.guild.members.cache.get(userId).user.username;
+}
+
+
+// Handling the acceptButton interaction
 client.on(Events.InteractionCreate, async (interaction) => {
   try {
     if (interaction.isButton() && interaction.customId === 'acceptButton') {
-      const user2id = interaction.user.id;
-      const user1Info = [...userInitiations.entries()].find(([, value]) => value.userId !== user2id);
-      console.log(user1Info);
+      const user2Id = interaction.user.id;
+      const user1Info = userInitiations.find(user => user.userId !== user2Id);
+      console.log(user2Id, user1Info);
+
+      if (!user1Info) {
+        const user1Id = interaction.message.reference?.messageId; // Fetch the original user message ID
+      
+        if (user1Id && user1Id !== user2Id) {
+          //userInitiations.push({ userId: user1Id, betAmount: /* Logic to fetch User 1's bet amount */ });
+          //userInitiations.push({ userId: user2Id, betAmount: /* Logic to fetch User 2's bet amount */ });
+          user1Info = userInitiations.find(user => user.userId !== user2Id);
+        }
+      }
+
       if (user1Info) {
-        const user1id = user1Info[1].userId;
-        const user1BetAmount = user1Info[1].betAmount;
+        const user1id = user1Info.userId;
+        const user1BetAmount = user1Info.betAmount;
         const user2BetAmount = user1BetAmount;
 
         const user1Balance = await queryUserBalance(user1id);
-        const user2Balance = await queryUserBalance(user2id);
+        const user2Balance = await queryUserBalance(user2Id);
 
         if (user2Balance >= user2BetAmount && user1Balance >= user1BetAmount) {
-          //Proceed to create a text channel for the two users.
+          // Create a text channel for the two users
           const guild = interaction.guild;
           const channel = await guild.channels.create({
             name: 'PVP DM Match',
@@ -1596,7 +1660,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 ],
               },
               {
-                id: user2id,
+                id: user2Id,
                 allow: [
                   PermissionsBitField.Flags.SendMessages,
                   PermissionsBitField.Flags.ViewChannel,
@@ -1611,10 +1675,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
               },
             ],
           });
+
           const embed = {
             color: 0x0099FF,
             title: 'PVP Deathmatch Initiation',
-            description: 'The match is ready to be started. Click "Start Match" to begin.',
+            description: `Match Initiated by: ${interaction.user.username} and ${otherUserName(interaction, user1Info.userId)}
+            \nBet Amount: ${user1BetAmount}\nClick the "Start Match" button to commence.`,
             thumbnail: {
               url: 'https://i.imgur.com/QrcYTuf.gif',
             },
@@ -1627,8 +1693,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setLabel('Start Match')
             .setCustomId('startMatchButton')
             .setStyle(ButtonStyle.Danger);
-
-          const row = new ActionRowBuilder().addComponents(button);
+          const button2 = new ButtonBuilder()
+            .setLabel('Cancel Match')
+            .setCustomId('cancelMatchButton')
+            .setStyle(ButtonStyle.Danger);
+          const row = new ActionRowBuilder().addComponents(button, button2);
           await channel.send({ embeds: [embed], components: [row] });
         }
       }
@@ -1637,6 +1706,523 @@ client.on(Events.InteractionCreate, async (interaction) => {
     console.error('Error handling Accept Button interaction:', error);
   }
 });
+
+// Function to fetch user avatars by ID
+async function fetchUserAvatars(user1Id, user2Id) {
+  try {
+    const user1 = await client.users.fetch(user1Id);
+    const user2 = await client.users.fetch(user2Id);
+
+    const user1AvatarURL = user1.displayAvatarURL({ format: 'png', dynamic: true, size: 256 });
+    const user2AvatarURL = user2.displayAvatarURL({ format: 'png', dynamic: true, size: 256 });
+
+    return [user1AvatarURL, user2AvatarURL];
+  } catch (error) {
+    console.error('Error fetching user avatars:', error);
+    return [null, null];
+  }
+}
+
+async function sendAvatarAnimation(message, user1Id, user2Id, winnerAvatar) {
+  const [user1Avatar, user2Avatar] = await fetchUserAvatars(user1Id, user2Id);
+
+  if (!user1Avatar || !user2Avatar) {
+    console.log('Avatars not found');
+    return;
+  }
+
+  const avatars = [user1Avatar, user2Avatar];
+  const displayDuration = 7000; // 7 seconds in milliseconds
+  const intervalDuration = 500; // Interval between displaying avatars in milliseconds
+  const transitionDuration = 1000; // Duration each avatar is displayed in milliseconds
+
+  let currentIndex = 0;
+  const startTime = Date.now();
+
+  const displayAvatars = setInterval(async () => {
+    const now = Date.now();
+    if (now - startTime >= displayDuration) {
+      clearInterval(displayAvatars);
+      const embed = {
+        image: {
+          url: winnerAvatar,
+        },
+      };
+      message.edit({ embeds: [embed] });
+      return;
+    }
+
+    const embed = {
+      title: 'Game Commencing',
+      description: 'Good Luck!',
+      image: {
+        url: avatars[currentIndex % avatars.length],
+      },
+    };
+
+    await message.edit({ embeds: [embed] });
+
+    currentIndex++;
+  }, intervalDuration);
+
+  // Clear the interval after the specified display duration
+  setTimeout(() => {
+    clearInterval(displayAvatars);
+    const embed = {
+      image: {
+        url: winnerAvatar,
+      },
+    };
+    message.edit({ embeds: [embed] });
+  }, displayDuration);
+}
+
+
+
+// Handling the startMatchButton interaction
+client.on(Events.InteractionCreate, async (interaction) => {
+  try {
+    if (interaction.customId === 'startMatchButton') {
+      const user1Id = interaction.user.id;
+      const channel = interaction.channel;
+
+      const user1Info = userInitiations.find((user) => user.userId !== user1Id);
+      const user2Id = user1Info?.userId;
+
+      if (!user1Info) {
+        console.log('No user info found for user 1:', user1Id);
+        console.log('User 2 Information:', user2Id);
+        return;
+      }
+
+      const user1 = interaction.guild.members.cache.get(user1Id);
+      const user2 = interaction.guild.members.cache.get(user2Id);
+
+      if (user1 && user2 && channel.members.has(user1Id) && channel.members.has(user2Id)) {
+        const user1BetAmount = user1Info.betAmount;
+        console.log('Both users are present in the channel.');
+        console.log('User 1 ID:', user1Id);
+        console.log('User 2 ID:', user2Id);
+        console.log('User 1 Bet Amount:', user1BetAmount);
+        console.log('User 2 Bet Amount:', user1BetAmount);
+
+        // Countdown before starting the game.
+        let countdownSeconds = 5;
+        const countdownMessage = await interaction.deferReply({ ephemeral: false });
+        await countdownMessage.edit(`Both users have agreed to start the match, starting in ${countdownSeconds}.`);
+
+        const countdownInterval = setInterval(async () => {
+          countdownSeconds -= 1;
+          if (countdownSeconds > 0) {
+            await countdownMessage.edit(`Both users have agreed to start the match, starting in ${countdownSeconds}.`);
+          } else {
+            clearInterval(countdownInterval);
+            await countdownMessage.edit('Match starting now!');
+            
+            //Create a new game using gameManager.
+            gameManager.createGame('PVP', [user1Id, user2Id]);
+            console.log(gameManager);
+            console.log(gameManager.getGame('0').game_users);
+            const winnerId = secureRandomInt(0, 1) === 0 ? user1Id : user2Id;
+            const loserId = winnerId === user1Id ? user2Id : user1Id;
+
+            const betAmount = user1BetAmount;
+
+            const [user1Avatar, user2Avatar] = await fetchUserAvatars(user1Id, user2Id);
+
+            if (user1Avatar && user2Avatar) {
+              const participantAvatars = [user1Avatar, user2Avatar];
+
+              const winnerAvatar = winnerId === user1Id ? user1Avatar : user2Avatar;
+              const animationMessage = await interaction.followUp('Starting the avatar animation...');
+              await sendAvatarAnimation(animationMessage, user1Id, user2Id, winnerAvatar);
+
+              const winnerWinnings = betAmount * 2;
+              const loserLosses = betAmount;
+
+              const winnerBalance = await queryUserBalance(winnerId);
+              const loserBalance = await queryUserBalance(loserId);
+
+              await updateUserBalance(winnerId, winnerWinnings + winnerBalance);
+              await updateUserBalance(loserId, loserBalance - loserLosses);
+
+              const winner = interaction.guild.members.cache.get(winnerId);
+              const winnerTag = winner?.user.tag;
+
+              const loser = interaction.guild.members.cache.get(loserId);
+              const loserTag = loser?.user.tag;
+
+              const resultsEmbed = {
+                color: 0x00FF00,
+                title: 'Results',
+                description: 'Check the results of the match out below!',
+                thumbnail: {
+                  url: 'https://i.imgur.com/QrcYTuf.gif',
+                },
+                image: {
+                  url: 'https://i.imgur.com/Lj36duE.gif',
+                },
+                fields: [
+                  {
+                    name: 'Bet Amount',
+                    value: `${betAmount}`,
+                  },
+                  {
+                    name: 'Winner🎉',
+                    value: `${winnerTag} wins ${winnerWinnings}!`,
+                  },
+                  {
+                    name: 'Loser😔',
+                    value: `${loserTag} loses ${loserLosses}... `,
+                  },
+                ],
+              };
+              await interaction.followUp({ embeds: [resultsEmbed] });
+            }
+          }
+        }, 1000); // 1 second interval for countdown.
+      } else {
+        console.log('Both users are not in the channel yet.');
+      }
+    }
+  } catch (error) {
+    console.error('Error handling Start Match Button interaction:', error);
+  }
+});
+
+
+
+// Going to try the dicing game now. (Done and working)
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+
+  if (interaction.customId === 'dicing_button') {
+    const dicingOption = new ButtonBuilder()
+      .setLabel('52x2')
+      .setCustomId('52x2Button')
+      .setStyle(ButtonStyle.Danger);
+    const dicingOption2 = new ButtonBuilder()
+      .setLabel('48x2')
+      .setCustomId('48x2Button')
+      .setStyle(ButtonStyle.Danger);
+    const row = new ActionRowBuilder().addComponents(dicingOption, dicingOption2);
+    await interaction.reply({ content: 'Click the button to start the dicing game.', components: [row] });
+  }
+});
+
+// getting dicingModal with text input submission to appear when users click the 52x2 button.
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton() || interaction.customId !== '52x2Button') return;
+  if (interaction.isButton() && interaction.customId === '52x2Button') {
+    const dicingModal = new ModalBuilder()
+      .setCustomId('dicingModal')
+      .setTitle('Enter the amount you wish to play with.');
+    const dicingAmountInput = new TextInputBuilder()
+      .setCustomId('dicingAmountInput')
+      .setLabel('Dicing Amount Input')
+      .setPlaceholder('Enter amount here...')
+      .setRequired(true)
+      .setStyle(TextInputStyle.Short);
+    const row = new ActionRowBuilder().addComponents(dicingAmountInput);
+    dicingModal.addComponents(row);
+
+    await interaction.showModal(dicingModal);
+  }
+});
+
+//random variable generation.
+function secureRandomInt(min, max) {
+  const range = max - min + 1;
+  const bytesNeeded = Math.ceil(Math.log2(range) / 8);
+  const randomBytes = crypto.randomBytes(bytesNeeded);
+  const randomInt = randomBytes.readUIntBE(0, bytesNeeded) % range + min;
+  return randomInt;
+}
+
+// Handling modal submission for the 52x2 dicing game
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isModalSubmit() && interaction.customId === 'dicingModal') {
+    const userId = interaction.user.id;
+    const betAmount = parseFloat(interaction.fields.getTextInputValue('dicingAmountInput'));
+
+    if (isNaN(betAmount) || betAmount <= 0) {
+      await interaction.reply('Please enter a valid amount to play with.');
+      return;
+    }
+
+    const userBalance = await queryUserBalance(userId);
+
+    if (userBalance < betAmount) {
+      await interaction.reply('Insufficient balance. Please enter a valid amount or check your balance.');
+      return;
+    }
+
+    // Placeholder for the rolling animation in the initial reply
+    const rollingEmbed = {
+      color: 0x0099FF,
+      title: 'Dicing Game 52x2',
+      description: 'Rolling the dice...',
+      thumbnail: {
+        url: 'https://i.imgur.com/QrcYTuf.gif',
+      },
+    };
+
+    const rollingMessage = await interaction.reply({ embeds: [rollingEmbed] });
+
+    const min = 1;
+    const max = 100;
+    let simulatedNumber = 0;
+    let result = 'Loss';
+    let updatedBalance = userBalance;
+    let wonAmount = 0;
+
+    // Simulate the rolling dice animation
+    for (let i = 0; i < 10; i++) {
+      const randomValue = secureRandomInt(min, max);
+      simulatedNumber = randomValue;
+
+      // Show the rolling number in the rolling message
+      const rollingUpdateEmbed = {
+        ...rollingEmbed,
+        description: `Rolling the dice... ${randomValue}`,
+      };
+
+      await rollingMessage.edit({ embeds: [rollingUpdateEmbed] });
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Adjust delay between number changes
+    }
+
+    // After the rolling animation, show the final number rolled
+    await rollingMessage.edit(`The dice rolled: ${simulatedNumber}`);
+
+    if (simulatedNumber > 52) {
+      // Player wins.
+      wonAmount = betAmount;
+      result = 'win';
+      updatedBalance = userBalance + wonAmount;
+      // update user's balance in the database.
+      await updateUserBalance(userId, updatedBalance);
+    } else {
+      // update user's balance in the database
+      updatedBalance = userBalance - betAmount;
+      await updateUserBalance(userId, updatedBalance);
+    }
+
+    gameManager.createGame('52x2', [userId]);
+
+    if (result === 'win' || result === 'loss') {
+      gameManager.endGame(gameId);
+    }
+
+    // Construct an embed for the game result
+    const resultEmbed = {
+      color: 0x0099FF,
+      title: '52x2 Dicing Game Result',
+      thumbnail: {
+        url: 'https://i.imgur.com/QrcYTuf.gif',
+      },
+      image: {
+        url: 'https://i.imgur.com/Lj36duE.gif',
+      },
+      fields: [
+        {
+          name: 'Your Bet Amount',
+          value: `${betAmount} gold`,
+          inline: true,
+        },
+        {
+          name: 'Your New Balance',
+          value: `${updatedBalance} gold`,
+          inline: true,
+        },
+        {
+          name: 'The Dice Rolled',
+          value: `The dice rolled: ${simulatedNumber}`,
+        },
+        {
+          name: 'Outcome',
+          value: result === 'win' ? `Congratulations! You win ${wonAmount} gold!` : 'Better luck next time...',
+        },
+      ],
+    };
+
+    await rollingMessage.edit({ embeds: [resultEmbed] });
+    console.log(gameManager);
+  }
+});
+
+
+//now handling the other dicing option.
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (!interaction.isButton()) return;
+  if (interaction.isButton && interaction.customId === '48x2Button') {
+    const dicingModal48x2 = new ModalBuilder()
+      .setCustomId('dicingModal48x2')
+      .setTitle('Bet Amount for 48x2 Game');
+    const dicingAmountInput48x2 = new TextInputBuilder()
+      .setCustomId('dicingAmountInput48x2')
+      .setLabel('Dicing Amount Input for 48x2 Game')
+      .setPlaceholder('Enter amount here...')
+      .setRequired(true)
+      .setStyle(TextInputStyle.Short);
+    const row = new ActionRowBuilder().addComponents(dicingAmountInput48x2);
+    dicingModal48x2.addComponents(row);
+
+    await interaction.showModal(dicingModal48x2);
+  }
+})
+
+
+//initializing gameManager object.
+const gameManager = new GameManager();
+
+// Handling modal submission for the 48x2 dicing game
+client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isModalSubmit() && interaction.customId === 'dicingModal48x2') {
+    const userId = interaction.user.id;
+    const betAmount = parseFloat(interaction.fields.getTextInputValue('dicingAmountInput48x2'));
+    const feedChannelId = '1160364114690965506';
+    const feedChannel = client.channels.cache.get(feedChannelId);
+    if (isNaN(betAmount) || betAmount <= 0) {
+      await interaction.reply('Please enter a valid amount to play with.');
+      return;
+    }
+
+    const userBalance = await queryUserBalance(userId);
+
+    if (userBalance < betAmount) {
+      await interaction.reply('Insufficient balance. Please check current balance and try again.');
+      return;
+    }
+
+    let simulatedNumber = 0;
+    const min = 1;
+    const max = 100;
+    
+    // Placeholder for the rolling animation in the initial reply
+    const rollingEmbed = {
+      color: 0x0099FF,
+      title: '48x2 Dicing Game',
+      description: 'Rolling the dice...',
+      thumbnail: {
+        url: 'https://i.imgur.com/QrcYTuf.gif',
+      },
+    };
+    
+    const rollingMessage = await interaction.reply({ embeds: [rollingEmbed] });
+    
+    // Simulate the rolling dice animation
+    for (let i = 0; i < 10; i++) {
+      const randomValue = secureRandomInt(min, max);
+      simulatedNumber = randomValue;
+
+      // Show the rolling number in the rolling message
+      const rollingUpdateEmbed = {
+        ...rollingEmbed,
+        description: `Rolling the dice... ${randomValue}`,
+      };
+
+      await rollingMessage.edit({ embeds: [rollingUpdateEmbed] });
+      await new Promise((resolve) => setTimeout(resolve, 500)); // Adjust delay between number changes
+    }
+
+    // Define and calculate updated balance based on the dicing game logic
+    let updatedBalance = userBalance;
+    let result = 'Loss';
+    let wonAmount = 0;
+
+    if (simulatedNumber <= 48) {
+      // Player wins.
+      wonAmount = betAmount;
+      result = 'win';
+      updatedBalance = userBalance + wonAmount;
+      // Update user's balance in the database.
+      await updateUserBalance(userId, updatedBalance);
+    } else {
+      // Update user's balance in the database
+      updatedBalance = userBalance - betAmount;
+      await updateUserBalance(userId, updatedBalance);
+    }
+
+    // Create a new game using the GameManager
+    const gameId = gameManager.createGame('48x2', []);
+    console.log(gameManager);
+    // End the game in the GameManager based on the result
+    gameManager.addUserToGame(gameId, userId);
+    if (result === 'win' || result === 'loss') {
+      gameManager.endGame(gameId); // Set the game status to 'finished' in the GameManager
+    }
+
+    // Construct an embed for the game result
+    const resultEmbed = {
+      color: 0x0099FF,
+      title: '48x2 Dicing Game Result',
+      thumbnail: {
+        url: 'https://i.imgur.com/QrcYTuf.gif',
+      },
+      image: {
+        url: 'https://i.imgur.com/Lj36duE.gif',
+      },
+      fields: [
+        {
+          name: 'Your Bet Amount',
+          value: `${betAmount} gold`,
+          inline: true,
+        },
+        {
+          name: 'Your New Balance',
+          value: `${updatedBalance} gold`,
+          inline: true,
+        },
+        {
+          name: 'The Dice Rolled',
+          value: `The dice rolled: ${simulatedNumber}`,
+        },
+        {
+          name: 'Outcome',
+          value: result === 'win' ? `Congratulations you win ${wonAmount} gold!` : 'Better luck next time...',
+        },
+      ],
+    };
+
+    await rollingMessage.edit({ embeds: [resultEmbed] });
+    console.log(gameManager);
+    console.log(gameManager.getGame('0').game_users);
+
+    const feedChannelEmbed = {
+      color: result === 'win' ? 0x00FF00 : 0xFF0000,
+      title: 'Dicing 48x2 Result',
+      description: 'Check the game outcome below!',
+      thumbnail: {
+        url: 'https://i.imgur.com/QrcYTuf.gif',
+      },
+      image: {
+        url: 'https://i.imgur.com/Lj36duE.gif',
+      },
+      fields: [
+        {
+          name: 'Bet Amount',
+          value: `${betAmount} gold`,
+        },
+        {
+          name: 'User',
+          value: `${userId}`,
+        },
+        {
+          name: 'Dice Roll',
+          value: `The Dice Rolled: ${simulatedNumber}`,
+        },
+        {
+          name: 'Outcome',
+          value: result === 'win' ? `Congratulations! User won ${wonAmount} gold.` : 'User lost...',
+        },
+      ],
+    };
+  }
+});
+
+
+// setting up the feed to send messages for the outcomes of the dicing game.
+
 
 //login to the client with the bot.
 const botToken = process.env.TOKEN;
